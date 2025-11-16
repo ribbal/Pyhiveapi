@@ -1,4 +1,5 @@
 """Setup pyhiveapi package."""
+
 # pylint: skip-file
 import os
 import re
@@ -16,7 +17,9 @@ def requirements_from_file(filename="requirements.txt"):
 
 
 setup(
-    version="0.5.16",
+    version="1.0.7",
+    packages=["apyhiveapi", "apyhiveapi.api", "apyhiveapi.helper"],
+    package_dir={"apyhiveapi": "src"},
     package_data={"data": ["*.json"]},
     include_package_data=True,
     cmdclass={

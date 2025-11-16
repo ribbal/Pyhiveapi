@@ -1,4 +1,5 @@
 """Helper class for pyhiveapi."""
+
 # pylint: skip-file
 import datetime
 import operator
@@ -95,7 +96,11 @@ class HiveHelper:
                     except KeyError:
                         pass
         elif type == "trvcontrol":
-            device = self.session.data.devices[product["props"]["trvs"][0]]
+            trv_present = len(product["props"]["trvs"]) > 0
+            if trv_present:
+                device = self.session.data.devices[product["props"]["trvs"][0]]
+            else:
+                raise KeyError
         elif type == "warmwhitelight" and product["props"]["model"] == "SIREN001":
             device = self.session.data.devices[product["parent"]]
         elif type == "sense":

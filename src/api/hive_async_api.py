@@ -1,4 +1,5 @@
 """Hive API Module."""
+
 # pylint: skip-file
 import json
 from typing import Optional
@@ -58,12 +59,14 @@ class HiveApiAsync:
                     "Accept": "*/*",
                     "Authorization": f"Bearer {self.session.tokens.tokenData['token']}",
                     "x-jwt-token": self.session.tokens.tokenData["token"],
+                    "User-Agent": "Hive/12.04.0 iOS/18.3.1 Apple",
                 }
             else:
                 headers = {
                     "content-type": "application/json",
                     "Accept": "*/*",
-                    "authorization": self.session.tokens.tokenData["token"],
+                    "Authorization": self.session.tokens.tokenData["token"],
+                    "User-Agent": "Hive/12.04.0 iOS/18.3.1 Apple",
                 }
         except KeyError:
             if "sso" in url:
@@ -337,7 +340,7 @@ class HiveApiAsync:
         return self.json_return
 
     async def error(self):
-        """An error has occurred iteracting with the Hive API."""
+        """An error has occurred interacting with the Hive API."""
         raise web_exceptions.HTTPError
 
     async def isFileBeingUsed(self):

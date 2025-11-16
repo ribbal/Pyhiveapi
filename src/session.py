@@ -1,4 +1,5 @@
 """Hive Session Module."""
+
 # pylint: skip-file
 import asyncio
 import copy
@@ -101,6 +102,7 @@ class HiveSession:
         )
         self.devices = {}
         self.deviceList = {}
+        self.hub_id = None
 
     def openFile(self, file: str):
         """Open a file.
@@ -128,22 +130,22 @@ class HiveSession:
         Returns:
             dict: Entity.
         """
-        device = self.helper.getDeviceData(data)
-        device_name = (
-            device["state"]["name"]
-            if device["state"]["name"] != "Receiver"
-            else "Heating"
-        )
-        formatted_data = {}
-
         try:
+            device = self.helper.getDeviceData(data)
+            device_name = (
+                device["state"]["name"]
+                if device["state"]["name"] != "Receiver"
+                else "Heating"
+            )
+            formatted_data = {}
+
             formatted_data = {
                 "hiveID": data.get("id", ""),
                 "hiveName": device_name,
                 "hiveType": data.get("type", ""),
                 "haType": entityType,
                 "deviceData": device.get("props", data.get("props", {})),
-                "parentDevice": data.get("parent", None),
+                "parentDevice": self.hub_id,
                 "isGroup": data.get("isGroup", False),
                 "device_id": device["id"],
                 "device_name": device_name,
@@ -153,12 +155,19 @@ class HiveSession:
                 kwargs["haName"] = device_name + kwargs["haName"]
             else:
                 formatted_data["haName"] = device_name
+
             formatted_data.update(kwargs)
+
+            if data.get("type", "") == "hub":
+                self.deviceList["parent"].append(formatted_data)
+                self.deviceList[entityType].append(formatted_data)
+            else:
+                self.deviceList[entityType].append(formatted_data)
+
+            return formatted_data
         except KeyError as error:
             self.logger.error(error)
-
-        self.deviceList[entityType].append(formatted_data)
-        return formatted_data
+            return None
 
     async def updateInterval(self, new_interval: timedelta):
         """Update the scan interval.
@@ -301,14 +310,17 @@ class HiveSession:
         else:
             expiry_time = self.tokens.tokenCreated + self.tokens.tokenExpiry
             if datetime.now() >= expiry_time:
-                result = await self.auth.refresh_token(
-                    self.tokens.tokenData["refreshToken"]
-                )
+                try:
+                    result = await self.auth.refresh_token(
+                        self.tokens.tokenData["refreshToken"]
+                    )
 
-                if "AuthenticationResult" in result:
-                    await self.updateTokens(result)
-                else:
-                    raise HiveFailedToRefreshTokens
+                    if "AuthenticationResult" in result:
+                        await self.updateTokens(result)
+                except HiveFailedToRefreshTokens:
+                    await self.deviceLogin()
+                except HiveApiError:
+                    raise HiveApiError
 
         return result
 
@@ -475,7 +487,7 @@ class HiveSession:
             config (dict, optional): Configuration for Home Assistant to use. Defaults to {}.
 
         Raises:
-            HiveUnknownConfiguration: Unknown configuration identifed.
+            HiveUnknownConfiguration: Unknown configuration identified.
             HiveReauthRequired: Tokens have expired and reauthentication is required.
 
         Returns:
@@ -489,6 +501,12 @@ class HiveSession:
         if config != {}:
             if "tokens" in config and not self.config.file:
                 await self.updateTokens(config["tokens"], False)
+
+            if "username" in config and not self.config.file:
+                self.auth.username = config["username"]
+
+            if "password" in config and not self.config.file:
+                self.auth.password = config["password"]
 
             if "device_data" in config and not self.config.file:
                 self.auth.device_group_key = config["device_data"][0]
@@ -514,6 +532,7 @@ class HiveSession:
         Returns:
             list: List of devices
         """
+        self.deviceList["parent"] = []
         self.deviceList["alarm_control_panel"] = []
         self.deviceList["binary_sensor"] = []
         self.deviceList["camera"] = []
@@ -523,25 +542,11 @@ class HiveSession:
         self.deviceList["switch"] = []
         self.deviceList["water_heater"] = []
 
-        hive_type = HIVE_TYPES["Heating"] + HIVE_TYPES["Switch"] + HIVE_TYPES["Light"]
-        for aProduct in self.data.products:
-            p = self.data.products[aProduct]
-            if "error" in p:
-                continue
-            # Only consider single items or heating groups
-            if (
-                p.get("isGroup", False)
-                and self.data.products[aProduct]["type"] not in HIVE_TYPES["Heating"]
-            ):
-                continue
-            product_list = PRODUCTS.get(self.data.products[aProduct]["type"], [])
-            for code in product_list:
-                eval("self." + code)
-
-            if self.data.products[aProduct]["type"] in hive_type:
-                self.config.mode.append(p["id"])
-
         hive_type = HIVE_TYPES["Thermo"] + HIVE_TYPES["Sensor"]
+        for aDevice in self.data["devices"]:
+            if self.data["devices"][aDevice]["type"] == "hub":
+                self.hub_id = aDevice
+                break
         for aDevice in self.data["devices"]:
             d = self.data.devices[aDevice]
             device_list = DEVICES.get(self.data.devices[aDevice]["type"], [])
@@ -555,6 +560,28 @@ class HiveSession:
             for action in self.data["actions"]:
                 a = self.data["actions"][action]  # noqa: F841
                 eval("self." + ACTIONS)
+
+        hive_type = HIVE_TYPES["Heating"] + HIVE_TYPES["Switch"] + HIVE_TYPES["Light"]
+        for aProduct in self.data.products:
+            p = self.data.products[aProduct]
+            if "error" in p:
+                continue
+            # Only consider single items or heating groups
+            if (
+                p.get("isGroup", False)
+                and self.data.products[aProduct]["type"] not in HIVE_TYPES["Heating"]
+            ):
+                continue
+            product_list = PRODUCTS.get(self.data.products[aProduct]["type"], [])
+            product_name = self.data.products[aProduct]["state"].get("name", "Unknown")
+            for code in product_list:
+                try:
+                    eval("self." + code)
+                except (NameError, AttributeError) as e:
+                    self.logger.warning(f"Device {product_name} cannot be setup - {e}")
+
+            if self.data.products[aProduct]["type"] in hive_type:
+                self.config.mode.append(p["id"])
 
         return self.deviceList
 

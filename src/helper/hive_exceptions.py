@@ -1,4 +1,5 @@
 """Hive exception class."""
+
 # pylint: skip-file
 
 
@@ -20,6 +21,14 @@ class NoApiToken(Exception):
 
 class HiveApiError(Exception):
     """Api error.
+
+    Args:
+        Exception (object): Exception object to invoke
+    """
+
+
+class HiveRefreshTokenExpired(Exception):
+    """Refresh token expired.
 
     Args:
         Exception (object): Exception object to invoke
